@@ -5,7 +5,9 @@ FROM python:3.13-slim AS builder
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
 COPY requirements.txt .
-RUN python -m venv /opt/venv && /opt/venv/bin/pip install -r requirements.txt
+RUN python -m venv /opt/venv \
+ && /opt/venv/bin/pip install -r requirements.txt \
+ && /opt/venv/bin/pip uninstall -y pip
 
 # ---- Etapa 2: imagen final mínima, sin herramientas de compilación ----
 FROM python:3.13-slim AS runtime
@@ -15,7 +17,14 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
 
-RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
+# Parches de seguridad del sistema base y sin pip/setuptools en la imagen final
+# (no se instalan paquetes en tiempo de ejecución; menos superficie de ataque)
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/* \
+ && python -m pip uninstall -y pip setuptools wheel \
+ && groupadd --gid 10001 app \
+ && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
